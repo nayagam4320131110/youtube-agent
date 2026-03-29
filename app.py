@@ -56,14 +56,13 @@ SCHEMAS = [
     }
 ]
 
-# 3. The Core Execution Logic (Fixed for OpenRouter)
+# 3. The Core Execution Logic
 def run(url, query):
-    # Use the OpenRouter API key variable
     api_key = os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
-        return "Error: OPENROUTER_API_KEY not set in Railway environment variables."
+        return "Error: OPENROUTER_API_KEY not set."
     
-    # Initialize the client pointing to OpenRouter
+    # Initialize OpenRouter client
     client = OpenAI(
         base_url="https://openrouter.ai/api/v1",
         api_key=api_key,
@@ -80,7 +79,42 @@ def run(url, query):
     ]
     
     while True:
-        msg = client.chat.completions.create(
-            model="openai/gpt-4o-mini", # Use OpenRouter model format
+        # Fixed the closing parenthesis and block here
+        response = client.chat.completions.create(
+            model="openai/gpt-4o-mini",
             messages=messages,
             tools=SCHEMAS,
+            tool_choice="auto",
+        )
+        
+        msg = response.choices[0].message
+        
+        if not msg.tool_calls:
+            return msg.content
+        
+        messages.append(msg)
+        for tc in msg.tool_calls:
+            # Execute the function
+            result = TOOLS[tc.function.name](**json.loads(tc.function.arguments))
+            # Append tool result to history
+            messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+
+# 4. Gradio UI Interface
+with gr.Blocks(title="AI Assistant") as app:
+    gr.Markdown("## 🤖 AI Assistant — video · math · weather")
+    
+    with gr.Row():
+        url_input = gr.Textbox(label="YouTube URL (optional)", placeholder="https://www.youtube.com/watch?v=...")
+        qry_input = gr.Textbox(label="Question", placeholder="Summarize the video / 128 * 37 / Weather in Tokyo", lines=2)
+    
+    btn = gr.Button("Ask")
+    output = gr.Textbox(label="Answer", lines=10)
+    
+    btn.click(fn=run, inputs=[url_input, qry_input], outputs=output)
+
+if __name__ == "__main__":
+    # Launch with dynamic port for Railway
+    app.launch(
+        server_name="0.0.0.0", 
+        server_port=int(os.environ.get("PORT", 7860))
+    )
